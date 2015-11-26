@@ -1,0 +1,10 @@
+[package]
+name = "wscat-rs"
+version = "0.1.0"
+authors = ["Walther Chen <walther.chen@gmail.com>"]
+
+[dependencies]
+clap = "1.5.3"
+readline = {git = "https://github.com/shaleh/rust-readline"}
+websocket = "0.14.0"
+
