@@ -1,37 +1,40 @@
-// todo: update to better readline option (linenoise or rustyline)
-// linenoise for some reason doesn't take ctrl-c
-//
-// Must do now:
-// Also, need to be able to close both threads gracefully
-//
-// Then colors
-
+// prompt still disappears every now and then
+#[macro_use]
 extern crate clap;
-extern crate readline;
+extern crate rl_sys;
 extern crate websocket;
 
 use std::io::{self, Write};
 use std::str;
-use std::sync::mpsc;
+use std::sync::mpsc::channel;
 use std::thread;
 
+use clap::App;
+use rl_sys::readline;
+use rl_sys::readline::redisplay;
+use rl_sys::history::{listmgmt, mgmt};
 use websocket::{Client, Message, Sender, Receiver};
 use websocket::client::request::Url;
 use websocket::message::Type;
 
 fn main() {
-    // Move this out of main
-    // Clear line in cli
-    let esc = String::from_utf8(vec![27]).unwrap();
-    let clear_line = format!("{}[2K{}[E", esc, esc);
-    let clear_line_bytes = clear_line.into_bytes();
+    // Command line interface
+    let matches = App::new("wscat-rs")
+        .version("0.1")
+        .author("Walther Chen <walther.chen@gmail.com>")
+        .about("Talk to websockets from cli")
+        .args_from_usage(
+            "-c --connect=[CONNECT] 'Server url to connect to'")
+        .get_matches();
 
-    //set up channel for syncing
-    
-    let (tx, rx) = mpsc::channel();
+
+    // channel for sending messages from readline to ws send thread
+    let (tx, rx) = channel();
 
     // set up client for ws
-    let url = Url::parse("ws://echo.websocket.org").unwrap();
+    let url_option = matches.value_of("CONNECT").unwrap_or("ws://echo.websocket.org");
+    println!("Connecting to {:?}", url_option);
+    let url = Url::parse(url_option).unwrap();
     let request = Client::connect(url).unwrap();
     let response = request.send().unwrap();
     response.validate().unwrap();
@@ -40,62 +43,62 @@ fn main() {
     let (mut sender, mut receiver) = client.split();
 
     // Thread for sending to ws
-    let tx = tx.clone();
-    let i = thread::spawn( move || {
-        tx.send(42).unwrap();
+    let send = thread::spawn( move || {
         loop {
-//            if let Ok(received) = rx.recv() {
-//                match received {
-//                    "broken pipe" => break,
-//                    _ => continue,
-//                }
-//            }
-            let input = readline::readline("> ").expect("no input at prompt");
-            readline::add_history(&input);
-            sender.send_message(&Message::text(input)).expect("problem sending message");
+            let message: Message = rx.recv().unwrap();
+            sender.send_message(&message).expect("err sending message");
         }
     });
 
     // Thread for receiving from ws
-    let tx = tx.clone();
-    let o = thread::spawn( move || {
-        tx.send(42).unwrap();
+    let tx_1 = tx.clone();
+    let receive = thread::spawn( move || {
         for message in receiver.incoming_messages() {
             let message: Message = match message {
-                Ok(message) => message,
-                Err(_) => {
-                    println!("Broken pipe");
-                    break
-                }
+                Ok(m) => m,
+                _ => break // Handle this?
             };
+
+            //write to stdout depending on opcode
+            let out = match message.opcode {
+                Type::Ping => {
+                    tx_1.send(Message::pong(message.payload)).unwrap();
+                    format!("Ping!\n") //add color
+                },
+                Type::Text => {
+                    format!("<< {}\n", str::from_utf8(&message.payload).unwrap())
+                },
+                _ => format!("Other type of ws message"),
+            };
+
+            redisplay::save_prompt();
+
+            //clear line
+            let esc = String::from_utf8(vec![27]).unwrap();
+            let clear_line_bytes = format!("{}[2K", esc).into_bytes();
             io::stdout().write(&clear_line_bytes[..]).expect("error clearing line");
-            match message {
-                Message{opcode, payload, ..} => {
-                    match opcode {
-                        Type::Ping => {
-                            println!("Ping!"); //add color
-                            //sender.send_message(&Message::pong(payload)).unwrap();
-                        },
-                        Type::Text => {
-                            let out = format!("<< {}\n> ",
-                                str::from_utf8(&payload.into_owned()[..])
-                                .unwrap()
-                            );
-                            let out_bytes = out.into_bytes();
-                            io::stdout().write(&out_bytes[..]).expect("error on write");
-                            io::stdout().flush().expect("error on flush");
-                        },
-                        _ => println!("Some other type of ws message"),
-                    }
-                }
-            }
+            io::stdout().flush().unwrap();
+
+            redisplay::message(&out).unwrap();
+            redisplay::rl_restore_prompt();
+            redisplay::redisplay();
         }
-        println!("Exited loop for receiving");
     });
 
-    // unwrap to error which exits program
-    i.join().unwrap();
-    o.join().unwrap();
-    rx.recv().expect("from channel error");
+    loop {
+        let input = match readline::readline("> ") {
+            Ok(Some(i)) => i,
+            Ok(None) => continue,
+            _ => break,
+        };
+        listmgmt::add(&input).unwrap();
+        let _ = tx.send(Message::text(input));
+    }
 
+    mgmt::cleanup();
+
+    // unwrap which exits program
+    send.join().unwrap();
+    receive.join().unwrap();
 }
+
