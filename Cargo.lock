@@ -2,6 +2,7 @@
 name = "wscat-rs"
 version = "0.1.0"
 dependencies = [
+ "ansi_term 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 1.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "rl-sys 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "websocket 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",

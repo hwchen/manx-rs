@@ -8,6 +8,7 @@ name = "wscat-rs"
 path = "src/main.rs"
 
 [dependencies]
+ansi_term = "0.7.1"
 clap = "1.5.3"
 rl-sys = "0.4.1"
 websocket = "0.14.0"

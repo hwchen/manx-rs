@@ -2,6 +2,7 @@
 #[macro_use]
 extern crate clap;
 extern crate rl_sys;
+extern crate ansi_term;
 extern crate websocket;
 
 use std::io::{self, Write};
@@ -13,6 +14,7 @@ use clap::App;
 use rl_sys::readline;
 use rl_sys::readline::redisplay;
 use rl_sys::history::{listmgmt, mgmt};
+use ansi_term::Colour::{Green, Blue, White};
 use websocket::{Client, Message, Sender, Receiver};
 use websocket::client::request::Url;
 use websocket::message::Type;
@@ -33,7 +35,8 @@ fn main() {
 
     // set up client for ws
     let url_option = matches.value_of("CONNECT").unwrap_or("ws://echo.websocket.org");
-    println!("Connecting to {:?}", url_option);
+    let out_url = format!("Connecting to {:?}", url_option);
+    println!("{}", Blue.bold().paint(out_url));
     let url = Url::parse(url_option).unwrap();
     let request = Client::connect(url).unwrap();
     let response = request.send().unwrap();
@@ -63,17 +66,18 @@ fn main() {
             let out = match message.opcode {
                 Type::Ping => {
                     tx_1.send(Message::pong(message.payload)).unwrap();
-                    format!("Ping!\n") //add color
+                    format!("{}", Green.paint("Ping!\n")) //add color
                 },
                 Type::Text => {
-                    format!("<< {}\n", str::from_utf8(&message.payload).unwrap())
+                    let out = format!("<< {}\n", str::from_utf8(&message.payload).unwrap());
+                    format!("{}", White.dimmed().paint(out))
                 },
                 _ => format!("Other type of ws message"),
             };
 
             redisplay::save_prompt();
 
-            //clear line
+            //clear line, maybe there's easier way in readline
             let esc = String::from_utf8(vec![27]).unwrap();
             let clear_line_bytes = format!("{}[2K", esc).into_bytes();
             io::stdout().write(&clear_line_bytes[..]).expect("error clearing line");
