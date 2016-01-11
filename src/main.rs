@@ -256,7 +256,7 @@ fn main() {
                 });
 
             // print that client is connecting
-            let out_url = format!("Connecting to {:?}", url_option);
+            let out_url = format!("Connected to {:?}, (Ctrl-C to exit)", url_option);
             println!("{}", Blue.bold().paint(out_url));
             wscat_client(url, auth_option);
         }
