@@ -1,25 +1,28 @@
 // prompt still disappears every now and then
 #[macro_use]
+extern crate ansi_term;
 extern crate clap;
 extern crate rl_sys;
-extern crate ansi_term;
+extern crate url;
 extern crate websocket;
 
+use std::error::Error;
 use std::io::{self, Write};
 use std::process;
 use std::str;
 use std::sync::mpsc::channel;
 use std::thread;
 
-use clap::{App, Arg};
+use ansi_term::Colour::{Blue, Green, Red, White};
+use clap::{App, Arg, SubCommand};
 use rl_sys::readline;
 use rl_sys::readline::redisplay;
 use rl_sys::history::{listmgmt, mgmt};
-use ansi_term::Colour::{Blue, Green, Red, White};
+use url::ParseError;
 use websocket::{Client, Message, Sender, Receiver, Server};
 use websocket::client::request::Url;
 use websocket::message::Type;
-use websocket::result::WebSocketError::WebSocketUrlError;
+use websocket::result::WebSocketError::{WebSocketUrlError, IoError};
 use websocket::result::WSUrlErrorKind::InvalidScheme;
 
 fn wscat_client(url: Url) {
@@ -30,13 +33,22 @@ fn wscat_client(url: Url) {
             println!("{}", Red.paint(out));
             process::exit(1);
         },
+        Err(IoError(err)) => {
+            // check back later... why does this description()
+            // return "connection refused", when
+            // code for WebSocketError seems to return "I/O failure"
+            let out = format!("Error: {}", err.description());
+            println!("{}", Red.paint(out));
+            process::exit(1);
+        },
         Err(err) => {
-            let out = format!("Error connecting:{:?}", err);
+            let out = format!("Error connecting: {:?}", err);
             println!("{}", Red.paint(out));
             process::exit(1);
         }
     };
     let response = request.send().unwrap();
+    //response.validate().expect("request refused");
     response.validate().unwrap();
 
     let client = response.begin();
@@ -132,7 +144,8 @@ fn wscat_server(port: usize) {
                 .get_mut()
                 .peer_addr()
                 .unwrap();
-            println!("Connection from {}", ip);
+            let out_ip = format!("Connection from {}", ip);
+            println!("{}", Green.paint(out_ip));
 
             let (mut sender, mut receiver) = client.split();
 
@@ -157,7 +170,12 @@ fn wscat_server(port: usize) {
                         let message = Message::pong(message.payload);
                         sender.send_message(&message).unwrap();
                     },
-                    _ => println!("<< {}", str::from_utf8(&message.payload).unwrap())
+                    _ => {
+                        println!("<< {} {}",
+                            str::from_utf8(&message.payload).unwrap(),
+                            White.dimmed().paint(format!("({})", ip))
+                        );
+                    }
                 }
             }
         });
@@ -174,63 +192,94 @@ fn main() {
         .version("0.1")
         .author("Walther Chen <walther.chen@gmail.com>")
         .about("Talk to websockets from cli")
-        .arg(Arg::with_name("CONNECT")
-             .short("c")
-             .long("connect")
-             .help("Connect to server url")
+        .subcommand(SubCommand::with_name("connect")
+             .about("Connect to server url")
+             .arg(Arg::with_name("URL")
+                .index(1)
+                .required(true))
+            .arg(Arg::with_name("HEADER:VALUE")
+                .short("H")
+                .long("header")
+                .help("set HTTP header, repeat to set multiple. (connect only)")
+                .takes_value(true))
+            .arg(Arg::with_name("USERNAME:PASSWORD")
+                .long("auth")
+                .help("Add basic HTTP authentication header. (connect only)")
+                .takes_value(true)))
+        .subcommand(SubCommand::with_name("listen")
+             .about("Listen on port")
+             .arg(Arg::with_name("PORT")
+                .index(1)
+                .required(true)))
+        .arg(Arg::with_name("PROTOCOL")
+             .short("p")
+             .long("protocol")
+             .help("optional protocol version")
              .takes_value(true))
-        .arg(Arg::with_name("LISTEN")
-             .short("l")
-             .long("listen")
-             .help("Listen on port")
+        .arg(Arg::with_name("ORIGIN")
+             .short("o")
+             .long("origin")
+             .help("optional origin")
              .takes_value(true))
+        .arg(Arg::with_name("HOST")
+             .long("host")
+             .help("optional host")
+             .takes_value(true))
+        .arg(Arg::with_name("SUBPROTOCOL")
+             .short("s")
+             .long("subprotocol")
+             .help("optional subprotocol")
+             .takes_value(true))
+        .arg(Arg::with_name("NO_CHECK")
+             .short("n")
+             .long("no-check")
+             .help("Do not check for unauthorized certificates")
+             .takes_value(false))
         .get_matches();
-
-    // check that there isn't both a connect and a listen
-    // Early exit if both exist
-    if let Some(_) = matches.value_of("CONNECT") {
-        if let Some(_) = matches.value_of("LISTEN") {
-            println!("{}",
-                Red.paint("Cannot have both 'Connect' and 'Listen' options simultaneously")
-            );
-            process::exit(1);
-        }
-    }
 
     // Options processing here (let some...)
 
+
     // Startup client or server
-    if let Some(url_option) = matches.value_of("CONNECT") {
-        let url: Url = match url_option.parse() {
-            Ok(url) => url,
-            Err(err) => {
-                let out = format!("Error parsing {:?} ({:?})", url_option, err);
-                println!("{}", Red.paint(out));
-                process::exit(1);
-            }
-        };
+    if let Some(ref matches) = matches.subcommand_matches("connect") {
+        if let Some(url_option) = matches.value_of("URL") {
+            let url: Url = match url_option.parse() {
+                Ok(url) => url,
+                Err(ParseError::RelativeUrlWithoutBase) => {
+                    let out = format!("Error parsing {:?}, url must begin with base", url_option);
+                    println!("{}", Red.paint(out));
+                    process::exit(1);
+                }
+                Err(err) => {
+                    let out = format!("Error parsing {:?} ({:?})", url_option, err);
+                    println!("{}", Red.paint(out));
+                    process::exit(1);
+                }
+            };
 
-        // print that client is connecting
-        let out_url = format!("Connecting to {:?}", url_option);
-        println!("{}", Blue.bold().paint(out_url));
+            // print that client is connecting
+            let out_url = format!("Connecting to {:?}", url_option);
+            println!("{}", Blue.bold().paint(out_url));
+            wscat_client(url);
+        }
 
-        wscat_client(url);
-
-    } else if let Some(port_option) = matches.value_of("LISTEN") {
-        let port: usize = match port_option.parse() {
-            Ok(port) if port <= 65535 => port,
-            Ok(port) => {
-                let out = format!("Port '{:?}' not in range", port);
-                println!("{}", Red.paint(out));
-                process::exit(1);
-            },
-            Err(err) => {
-                let out = format!("Error parsing {:?} ({:?})", port_option, err);
-                println!("{}", Red.paint(out));
-                process::exit(1);
-            },
-        };
-        wscat_server(port);
+    } else if let Some(ref matches) = matches.subcommand_matches("listen") {
+        if let Some(port_option) = matches.value_of("PORT") {
+            let port: usize = match port_option.parse() {
+                Ok(port) if port <= 65535 => port,
+                Ok(port) => {
+                    let out = format!("Port '{:?}' not in range", port);
+                    println!("{}", Red.paint(out));
+                    process::exit(1);
+                },
+                Err(err) => {
+                    let out = format!("Error parsing {:?} ({:?})", port_option, err);
+                    println!("{}", Red.paint(out));
+                    process::exit(1);
+                },
+            };
+            wscat_server(port);
+        }
     }
 }
 
