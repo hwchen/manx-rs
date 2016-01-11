@@ -2,8 +2,9 @@
 #[macro_use]
 extern crate ansi_term;
 extern crate clap;
+extern crate hyper; // just for headers...
 extern crate rl_sys;
-extern crate url;
+extern crate url; // just for error...
 extern crate websocket;
 
 use std::error::Error;
@@ -15,6 +16,7 @@ use std::thread;
 
 use ansi_term::Colour::{Blue, Green, Red, White};
 use clap::{App, Arg, SubCommand};
+use hyper::header::{Authorization, Basic};
 use rl_sys::readline;
 use rl_sys::readline::redisplay;
 use rl_sys::history::{listmgmt, mgmt};
@@ -25,8 +27,22 @@ use websocket::message::Type;
 use websocket::result::WebSocketError::{WebSocketUrlError, IoError};
 use websocket::result::WSUrlErrorKind::InvalidScheme;
 
-fn wscat_client(url: Url) {
-    let request = match Client::connect(url) {
+pub fn parse_authorization(user_password: &str) -> Option<Authorization<Basic>> {
+    let v: Vec<_> = user_password.split(':').collect();
+    if v.len() > 2 {
+        None
+    } else {
+        Some(Authorization (
+            Basic {
+                username: v[0].to_owned(),
+                password: v.get(1).map(|&p| p.to_owned()),
+            }
+        ))
+    }
+}
+
+fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
+    let mut request = match Client::connect(url) {
         Ok(r) => r,
         Err(WebSocketUrlError(InvalidScheme)) => {
             let out = format!("Invalid Scheme, url must start with 'ws://' or 'wss://'");
@@ -47,8 +63,11 @@ fn wscat_client(url: Url) {
             process::exit(1);
         }
     };
+    if let Some(auth) = auth_option {
+        println!("Authorization: {:?}", auth);
+        request.headers.set(auth);
+    }
     let response = request.send().unwrap();
-    //response.validate().expect("request refused");
     response.validate().unwrap();
 
     let client = response.begin();
@@ -197,11 +216,6 @@ fn main() {
              .arg(Arg::with_name("URL")
                 .index(1)
                 .required(true))
-            .arg(Arg::with_name("HEADER:VALUE")
-                .short("H")
-                .long("header")
-                .help("set HTTP header, repeat to set multiple. (connect only)")
-                .takes_value(true))
             .arg(Arg::with_name("USERNAME:PASSWORD")
                 .long("auth")
                 .help("Add basic HTTP authentication header. (connect only)")
@@ -211,30 +225,6 @@ fn main() {
              .arg(Arg::with_name("PORT")
                 .index(1)
                 .required(true)))
-        .arg(Arg::with_name("PROTOCOL")
-             .short("p")
-             .long("protocol")
-             .help("optional protocol version")
-             .takes_value(true))
-        .arg(Arg::with_name("ORIGIN")
-             .short("o")
-             .long("origin")
-             .help("optional origin")
-             .takes_value(true))
-        .arg(Arg::with_name("HOST")
-             .long("host")
-             .help("optional host")
-             .takes_value(true))
-        .arg(Arg::with_name("SUBPROTOCOL")
-             .short("s")
-             .long("subprotocol")
-             .help("optional subprotocol")
-             .takes_value(true))
-        .arg(Arg::with_name("NO_CHECK")
-             .short("n")
-             .long("no-check")
-             .help("Do not check for unauthorized certificates")
-             .takes_value(false))
         .get_matches();
 
     // Options processing here (let some...)
@@ -257,10 +247,15 @@ fn main() {
                 }
             };
 
+            let auth_option = matches.value_of("USERNAME:PASSWORD")
+                .and_then(|user_pass| {
+                    parse_authorization(user_pass)
+                });
+
             // print that client is connecting
             let out_url = format!("Connecting to {:?}", url_option);
             println!("{}", Blue.bold().paint(out_url));
-            wscat_client(url);
+            wscat_client(url, auth_option);
         }
 
     } else if let Some(ref matches) = matches.subcommand_matches("listen") {
