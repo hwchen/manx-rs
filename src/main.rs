@@ -64,17 +64,18 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
             process::exit(1);
         }
     };
+
     if let Some(auth) = auth_option {
         println!("Authorization: {:?}", auth);
         request.headers.set(auth);
     }
+
     let response = request.send().unwrap();
     response.validate().unwrap();
 
     let client = response.begin();
     let (mut sender, mut receiver) = client.split();
 
-    // Move from here onwards to its own function, so can have a listening fn also.
     // channel for sending messages from readline to ws send thread
     let (tx, rx) = channel();
 
@@ -227,9 +228,6 @@ fn main() {
                 .index(1)
                 .required(true)))
         .get_matches();
-
-    // Options processing here (let some...)
-
 
     // Startup client or server
     if let Some(ref matches) = matches.subcommand_matches("connect") {
