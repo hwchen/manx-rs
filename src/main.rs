@@ -112,11 +112,12 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
             redisplay::save_prompt();
 
             //clear line, maybe there's easier way in readline
-            // there's something wrong with handling multiple lines or something?
+            // the 2K is to clear line completely
+            // the 2D is to move cursor back two spaces (from where it is
+            // after clearing the line, goes to original cursor position)
             let esc = String::from_utf8(vec![27]).unwrap();
-            let clear_line_bytes = format!("{}[2K", esc).into_bytes();
+            let clear_line_bytes = format!("{}[2K{}[2D", esc, esc).into_bytes();
             io::stdout().write(&clear_line_bytes[..]).expect("error clearing line");
-            io::stdout().flush().unwrap();
 
             io::stdout().write(&out.as_bytes()).unwrap();
             io::stdout().flush().unwrap();
