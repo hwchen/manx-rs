@@ -209,8 +209,8 @@ fn wscat_server(port: usize) {
 
 fn main() {
     // Command line interface
-    let matches = App::new("wscat-rs")
-        .version("0.1")
+    let matches = App::new("manx")
+        .version("0.2")
         .author("Walther Chen <walther.chen@gmail.com>")
         .about("Talk to websockets from cli")
         .subcommand(SubCommand::with_name("connect")
