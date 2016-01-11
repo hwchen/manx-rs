@@ -27,6 +27,7 @@ use websocket::message::Type;
 use websocket::result::WebSocketError::{WebSocketUrlError, IoError};
 use websocket::result::WSUrlErrorKind::InvalidScheme;
 
+// refactor to use from_str
 pub fn parse_authorization(user_password: &str) -> Option<Authorization<Basic>> {
     let v: Vec<_> = user_password.split(':').collect();
     if v.len() > 2 {
