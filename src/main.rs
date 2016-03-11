@@ -83,7 +83,12 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
     let send = thread::spawn( move || {
         loop {
             let message: Message = rx.recv().unwrap();
-            sender.send_message(&message).expect("err sending message");
+            if let Err(IoError(err)) = sender.send_message(&message) {
+                let out = format!("Connection Closed: {}", err);
+                println!("");
+                println!("{}", Red.paint(out));
+                process::exit(1);
+            }
         }
     });
 
