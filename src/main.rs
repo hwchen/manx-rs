@@ -106,6 +106,13 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
                     let out = format!("<< {}\n", str::from_utf8(&message.payload).unwrap());
                     format!("{}", White.dimmed().paint(out))
                 },
+                Type::Close => {
+                    println!("");
+                    let out = format!("{}", Red.paint("Connection Closed"));
+                    println!("{}", out);
+                    //an early exit. Better way to handle?
+                    process::exit(0); // this should release system resources too.
+                },
                 _ => format!("Other type of ws message"),
             };
 
