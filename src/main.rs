@@ -129,7 +129,7 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
             // after clearing the line, goes to original cursor position)
             let esc = String::from_utf8(vec![27]).unwrap();
             let clear_line_bytes = format!("{}[2K{}[2D", esc, esc).into_bytes();
-            io::stdout().write(&clear_line_bytes[..]).expect("error clearing line");
+            io::stdout().write(&clear_line_bytes).expect("error clearing line");
 
             io::stdout().write(&out.as_bytes()).unwrap();
             io::stdout().flush().unwrap();
