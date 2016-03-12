@@ -115,10 +115,9 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
                     println!("");
                     let out = format!("{}", Red.paint("Connection Closed"));
                     println!("{}", out);
-                    //an early exit. Better way to handle?
-                    process::exit(0); // this should release system resources too.
+                    process::exit(0);
                 },
-                _ => format!("Other type of ws message"),
+                _ => format!("Unsupported ws message"),
             };
 
             redisplay::save_prompt();
