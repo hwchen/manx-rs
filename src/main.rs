@@ -118,7 +118,7 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
                 },
                 Type::Close => {
                     println!("");
-                    let out = format!("{}", Red.paint("Connection Closed"));
+                    let out = format!("{}", Red.paint("Connection Closed: Close message received"));
                     println!("{}", out);
                     process::exit(0);
                 },
