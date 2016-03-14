@@ -98,7 +98,12 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
         for message in receiver.incoming_messages() {
             let message: Message = match message {
                 Ok(m) => m,
-                _ => break // Handle this?
+                Err(err) => {
+                    let out = format!("Connection Closed: {}", err);
+                    println!("");
+                    println!("{}", Red.paint(out));
+                    process::exit(1);
+                },
             };
 
             //write to stdout depending on opcode
