@@ -1,6 +1,6 @@
 // prompt still disappears every now and then
-#[macro_use]
 extern crate ansi_term;
+#[macro_use]
 extern crate clap;
 extern crate hyper; // just for headers...
 extern crate rl_sys;
@@ -15,7 +15,7 @@ use std::sync::mpsc::channel;
 use std::thread;
 
 use ansi_term::Colour::{Blue, Green, Red, White};
-use clap::{App, Arg, SubCommand};
+use clap::{App, AppSettings, Arg, SubCommand};
 use hyper::header::{Authorization, Basic};
 use rl_sys::readline;
 use rl_sys::readline::redisplay;
@@ -70,8 +70,16 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
         request.headers.set(auth);
     }
 
-    let response = request.send().unwrap();
-    response.validate().unwrap();
+    let response = match request.send() {
+        Ok(response) => response,
+        Err(err) => {
+            let out = format!("Unable to connect: {}", err);
+            println!("");
+            println!("{}", Red.paint(out));
+            process::exit(1);
+        },
+    };
+    response.validate().expect("there");
 
     let client = response.begin();
     let (mut sender, mut receiver) = client.split();
@@ -230,12 +238,14 @@ fn wscat_server(port: usize) {
 fn main() {
     // Command line interface
     let matches = App::new("manx")
-        .version("0.2")
+        .version(crate_version!())
         .author("Walther Chen <walther.chen@gmail.com>")
         .about("Talk to websockets from cli")
+        .setting(AppSettings::ArgRequiredElseHelp)
         .subcommand(SubCommand::with_name("connect")
-             .about("Connect to server url")
-             .arg(Arg::with_name("URL")
+            .visible_alias("c")
+            . about("Connect to server url")
+            . arg(Arg::with_name("URL")
                 .index(1)
                 .required(true))
             .arg(Arg::with_name("USERNAME:PASSWORD")
@@ -243,8 +253,8 @@ fn main() {
                 .help("Add basic HTTP authentication header. (connect only)")
                 .takes_value(true)))
         .subcommand(SubCommand::with_name("listen")
-             .about("Listen on port")
-             .arg(Arg::with_name("PORT")
+            .about("Listen on port")
+            .arg(Arg::with_name("PORT")
                 .index(1)
                 .required(true)))
         .get_matches();

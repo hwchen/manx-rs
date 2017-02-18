@@ -1,8 +1,12 @@
 [package]
 authors = ["Walther Chen <walther.chen@gmail.com>"]
 description = "wscat clone in rust"
-name = "manx-rs"
-version = "0.2.0"
+homepage = "https://github.com/hwchen/manx-rs"
+repository = "https://github.com/hwchen/manx-rs"
+keywords = ["websockets", "wscat"]
+license = "MIT OR Apache-2.0"
+name = "manx"
+version = "0.3.0"
 
 [[bin]]
 name = "manx"
@@ -10,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 ansi_term = "0.7.1"
-clap = "1.5.3"
+clap = "2.20.4"
 hyper = "0.7.2"
 rl-sys = "0.4.1"
 url = "0.5.2"
