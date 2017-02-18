@@ -6,6 +6,8 @@ a client, but also contains a listener.
 One of its features is that it saves the prompt, so that you can type commands even
 if you are receiving a flood of data.
 
+Windows is not currently supported, but will be soon.
+
 # Install
 
 Make sure you have [Rust](https://rustup.rs), then
