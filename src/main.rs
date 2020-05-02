@@ -1,97 +1,59 @@
 // prompt still disappears every now and then
+extern crate anyhow;
 extern crate ansi_term;
 #[macro_use]
 extern crate clap;
-extern crate hyper; // just for headers...
 extern crate rl_sys;
 extern crate url; // just for error...
-extern crate websocket;
+extern crate tungstenite;
 
-use std::error::Error;
 use std::io::{self, Write};
+use std::net::TcpListener;
 use std::process;
-use std::str;
 use std::sync::mpsc::channel;
 use std::thread;
 
+use anyhow::{Context as _, Result};
 use ansi_term::Colour::{Blue, Green, Red, White};
 use clap::{App, AppSettings, Arg, SubCommand};
-use hyper::header::{Authorization, Basic};
-use rl_sys::readline;
-use rl_sys::readline::redisplay;
+use rl_sys::readline::{self, redisplay};
 use rl_sys::history::{listmgmt, mgmt};
-use url::ParseError;
-use websocket::{Client, Message, Sender, Receiver, Server};
-use websocket::client::request::Url;
-use websocket::message::Type;
-use websocket::result::WebSocketError::{WebSocketUrlError, IoError};
-use websocket::result::WSUrlErrorKind::InvalidScheme;
+use tungstenite::Message;
+use url::Url;
 
+// TODO do this later
 // refactor to use from_str
-pub fn parse_authorization(user_password: &str) -> Option<Authorization<Basic>> {
-    let v: Vec<_> = user_password.split(':').collect();
-    if v.len() > 2 {
-        None
-    } else {
-        Some(Authorization (
-            Basic {
-                username: v[0].to_owned(),
-                password: v.get(1).map(|&p| p.to_owned()),
-            }
-        ))
-    }
-}
+//pub fn parse_authorization(user_password: &str) -> Option<Authorization<Basic>> {
+//    let v: Vec<_> = user_password.split(':').collect();
+//    if v.len() > 2 {
+//        None
+//    } else {
+//        Some(Authorization (
+//            Basic {
+//                username: v[0].to_owned(),
+//                password: v.get(1).map(|&p| p.to_owned()),
+//            }
+//        ))
+//    }
+//}
 
-fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
-    let mut request = match Client::connect(url) {
-        Ok(r) => r,
-        Err(WebSocketUrlError(InvalidScheme)) => {
-            let out = format!("Invalid Scheme, url must start with 'ws://' or 'wss://'");
-            println!("{}", Red.paint(out));
-            process::exit(1);
-        },
-        Err(IoError(err)) => {
-            // check back later... why does this description()
-            // return "connection refused", when
-            // code for WebSocketError seems to return "I/O failure"
-            let out = format!("Error: {}", err.description());
-            println!("{}", Red.paint(out));
-            process::exit(1);
-        },
-        Err(err) => {
-            let out = format!("Error connecting: {:?}", err);
-            println!("{}", Red.paint(out));
-            process::exit(1);
-        }
-    };
+fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
+    let (ws, _response) = tungstenite::connect(url)?;
+    use std::sync::{Arc, Mutex};
+    let ws = Arc::new(Mutex::new(ws));
 
-    if let Some(auth) = auth_option {
-        println!("Authorization: {:?}", auth);
-        request.headers.set(auth);
-    }
-
-    let response = match request.send() {
-        Ok(response) => response,
-        Err(err) => {
-            let out = format!("Unable to connect: {}", err);
-            println!("");
-            println!("{}", Red.paint(out));
-            process::exit(1);
-        },
-    };
-    response.validate().expect("there");
-
-    let client = response.begin();
-    let (mut sender, mut receiver) = client.split();
 
     // channel for sending messages from readline to ws send thread
     let (tx, rx) = channel();
 
+    let ws_1 = ws.clone();
     // Thread for sending to ws
-    let send = thread::spawn( move || {
+    let send = thread::spawn(move || {
         loop {
             let message: Message = rx.recv().unwrap();
-            if let Err(IoError(err)) = sender.send_message(&message) {
+
+            let mut ws = ws_1.lock().unwrap();
+            if let Err(err) = ws.write_message(message) {
                 let out = format!("Connection Closed: {}", err);
                 println!("");
                 println!("{}", Red.paint(out));
@@ -102,9 +64,13 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
 
     // Thread for receiving from ws
     let tx_1 = tx.clone();
-    let receive = thread::spawn( move || {
-        for message in receiver.incoming_messages() {
-            let message: Message = match message {
+    let ws_2 = ws.clone();
+    let receive = thread::spawn(move || {
+        loop {
+            // ugh, this is ridiculous to have a mutex here. But I'm going to split when moving to
+            // async anyways.
+            let mut ws = ws_2.lock().unwrap();
+            let message: Message = match ws.read_message() {
                 Ok(m) => m,
                 Err(err) => {
                     let out = format!("Connection Closed: {}", err);
@@ -115,16 +81,18 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
             };
 
             //write to stdout depending on opcode
-            let out = match message.opcode {
-                Type::Ping => {
-                    tx_1.send(Message::pong(message.payload)).unwrap();
+            let out = match message {
+                Message::Ping(payload) => {
+                    tx_1.send(Message::Pong(payload)).unwrap();
                     format!("{}", Green.paint("Ping!\n")) //add color
                 },
-                Type::Text => {
-                    let out = format!("<< {}\n", str::from_utf8(&message.payload).unwrap());
+                Message::Text(payload) => {
+                    let out = format!("<< {}\n", payload);
                     format!("{}", White.dimmed().paint(out))
                 },
-                Type::Close => {
+                // Don't support binary
+                Message::Binary(_) => {"".to_owned()},
+                Message::Close(_) => {
                     println!("");
                     let out = format!("{}", Red.paint("Connection Closed: Close message received"));
                     println!("{}", out);
@@ -166,63 +134,51 @@ fn wscat_client(url: Url, auth_option: Option<Authorization<Basic>>) {
     // unwrap which exits program
     send.join().unwrap();
     receive.join().unwrap();
+
+    Ok(())
 }
 
-fn wscat_server(port: usize) {
+fn wscat_server(port: usize) -> Result<()> {
     let out_port = format!("Listening on port {:?}", port);
     println!("{}", Blue.bold().paint(out_port));
     let url = format!("127.0.0.1:{}", port); 
-    let server = match Server::bind(&url[..]) {
-        Ok(c) => c,
-        Err(err) => {
-            let out = format!("Error connecting:{:?}", err);
-            println!("{}", Red.paint(out));
-            process::exit(1);
-        }
-    };
+
+    let listener = TcpListener::bind(&url.as_str())?;
+
     let mut handles = Vec::new();
-    for connection in server {
+    for stream in listener.incoming() {
+        let stream = stream?;
+        let mut ws = tungstenite::accept(stream)?;
+
         let handle = thread::spawn(move || {
-            let request = connection.unwrap().read_request().unwrap();
-            request.validate().unwrap();
-
-            let response = request.accept();
-            let mut client = response.send().unwrap();
-
-            let ip = client.get_mut_sender()
-                .get_mut()
-                .peer_addr()
-                .unwrap();
-            let out_ip = format!("Connection from {}", ip);
-            println!("{}", Green.paint(out_ip));
-
-            let (mut sender, mut receiver) = client.split();
-
-            for message in receiver.incoming_messages() {
-                let message: Message = match message {
+            loop {
+                let message: Message = match ws.read_message() {
                     Ok(m) => m,
                     Err(_) => {
-                        let out = format!("Disconnecting {}", ip);
+                        let out = format!("Disconnecting ws");
                         println!("{}", Red.paint(out));
                         break;
                     }
                 };
 
-                match message.opcode {
-                    Type::Close => {
-                        let message = Message::close();
-                        sender.send_message(&message).unwrap();
-                        println!("Client {} disconnected", ip);
+                match message {
+                    Message::Close(_) => {
+                        let message = Message::Close(None);
+                        ws.write_message(message).unwrap();
+                        println!("Client disconnected");
                         return;
                     },
-                    Type::Ping => {
-                        let message = Message::pong(message.payload);
-                        sender.send_message(&message).unwrap();
+                    Message::Ping(payload) => {
+                        let message = Message::Pong(payload);
+                        ws.write_message(message).unwrap();
                     },
-                    _ => {
+                    Message::Pong(_) => {},
+                    // Don't support binary
+                    Message::Binary(_) => {},
+                    Message::Text(payload) => {
                         println!("<< {} {}",
-                            str::from_utf8(&message.payload).unwrap(),
-                            White.dimmed().paint(format!("({})", ip))
+                            payload,
+                            White.dimmed().paint(format!("(ip)"))
                         );
                     }
                 }
@@ -233,9 +189,11 @@ fn wscat_server(port: usize) {
     for handle in handles {
         handle.join().unwrap();
     }
+
+    Ok(())
 }
 
-fn main() {
+fn main() -> Result<()> {
     // Command line interface
     let matches = App::new("manx")
         .version(crate_version!())
@@ -262,29 +220,20 @@ fn main() {
     // Startup client or server
     if let Some(ref matches) = matches.subcommand_matches("connect") {
         if let Some(url_option) = matches.value_of("URL") {
-            let url: Url = match url_option.parse() {
-                Ok(url) => url,
-                Err(ParseError::RelativeUrlWithoutBase) => {
-                    let out = format!("Error parsing {:?}, url must begin with base", url_option);
-                    println!("{}", Red.paint(out));
-                    process::exit(1);
-                }
-                Err(err) => {
-                    let out = format!("Error parsing {:?} ({:?})", url_option, err);
-                    println!("{}", Red.paint(out));
-                    process::exit(1);
-                }
-            };
+            let url: Url = url_option.parse()
+                .with_context(|| format!("Error parsing {:?}", url_option))?;
 
-            let auth_option = matches.value_of("USERNAME:PASSWORD")
-                .and_then(|user_pass| {
-                    parse_authorization(user_pass)
-                });
+            // TODO later
+            //let auth_option = matches.value_of("USERNAME:PASSWORD")
+            //    .and_then(|user_pass| {
+            //        parse_authorization(user_pass)
+            //    });
+            let auth_option = None;
 
             // print that client is connecting
             let out_url = format!("Connected to {:?} (Ctrl-C to exit)", url_option);
             println!("{}", Blue.bold().paint(out_url));
-            wscat_client(url, auth_option);
+            wscat_client(url, auth_option)?;
         }
 
     } else if let Some(ref matches) = matches.subcommand_matches("listen") {
@@ -302,8 +251,10 @@ fn main() {
                     process::exit(1);
                 },
             };
-            wscat_server(port);
+            wscat_server(port)?;
         }
     }
+
+    Ok(())
 }
 

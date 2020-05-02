@@ -13,9 +13,9 @@ name = "manx"
 path = "src/main.rs"
 
 [dependencies]
-ansi_term = "0.7.1"
-clap = "2.20.4"
-hyper = "0.7.2"
-rl-sys = "0.4.1"
-url = "0.5.2"
-websocket = "0.14.0"
+ansi_term = "0.12.1"
+clap = "2.33.0"
+url = "2.1.1"
+tungstenite = "0.10.1"
+anyhow = "1.0.28"
+rl-sys = { path = "../readline-sys" }
