@@ -42,8 +42,10 @@ fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     let send = thread::spawn(move || {
         loop {
             let message: Message = rx.recv().unwrap();
+            println!("message received for writing to websocket");
 
             let mut ws = ws_1.lock().unwrap();
+            println!("websocket unlocked for read");
             if let Err(err) = ws.write_message(message) {
                 let out = format!("Connection Closed: {}", err);
                 println!("");
@@ -81,8 +83,11 @@ fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
                     let out = format!("<< {}\n", payload);
                     format!("{}", White.dimmed().paint(out))
                 },
-                // Don't support binary
-                Message::Binary(_) => {"".to_owned()},
+                Message::Binary(payload) => {
+                    // Binary just supported as text here; no downloading, etc.
+                    let out = format!("<< {}\n", String::from_utf8(payload).unwrap());
+                    format!("{}", White.dimmed().paint(out))
+                },
                 Message::Close(_) => {
                     println!("");
                     let out = format!("{}", Red.paint("Connection Closed: Close message received"));
@@ -98,8 +103,10 @@ fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
             // the 2K is to clear line completely
             // the 2D is to move cursor back two spaces (from where it is
             // after clearing the line, goes to original cursor position)
+            // Hmm... something weird happened. Now I'm using 1G to move to
+            // beginning of line. Not sure what changed from last version.
             let esc = String::from_utf8(vec![27]).unwrap();
-            let clear_line_bytes = format!("{}[2K{}[2D", esc, esc).into_bytes();
+            let clear_line_bytes = format!("{}[2K{}[1G", esc, esc).into_bytes();
             io::stdout().write(&clear_line_bytes).expect("error clearing line");
 
             io::stdout().write(&out.as_bytes()).unwrap();
@@ -118,6 +125,7 @@ fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
         };
         listmgmt::add(&input).unwrap();
         let _ = tx.send(Message::text(input));
+        println!("message sent for writing to websocket");
     }
 
     mgmt::cleanup();
