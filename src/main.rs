@@ -1,12 +1,3 @@
-// prompt still disappears every now and then
-extern crate anyhow;
-extern crate ansi_term;
-#[macro_use]
-extern crate clap;
-extern crate rl_sys;
-extern crate url; // just for error...
-extern crate tungstenite;
-
 use std::io::{self, Write};
 use std::net::TcpListener;
 use std::process;
@@ -15,7 +6,7 @@ use std::thread;
 
 use anyhow::{Context as _, Result};
 use ansi_term::Colour::{Blue, Green, Red, White};
-use clap::{App, AppSettings, Arg, SubCommand};
+use clap::{crate_version, App, AppSettings, Arg, SubCommand};
 use rl_sys::readline::{self, redisplay};
 use rl_sys::history::{listmgmt, mgmt};
 use tungstenite::Message;

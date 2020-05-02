@@ -3,10 +3,12 @@ authors = ["Walther Chen <walther.chen@gmail.com>"]
 description = "wscat clone in rust"
 homepage = "https://github.com/hwchen/manx-rs"
 repository = "https://github.com/hwchen/manx-rs"
-keywords = ["websockets", "wscat"]
+keywords = ["websocket", "wscat", "netcat", "cli"]
 license = "MIT OR Apache-2.0"
+edition = "2018"
 name = "manx"
 version = "0.3.0"
+
 
 [[bin]]
 name = "manx"
