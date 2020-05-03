@@ -77,7 +77,9 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     Ok(())
 }
 
-// only use thread-local executor, since smol will only run on one thread
+// Only use thread-local executor, since smol will only run on one thread.
+// Has branches that terminate process; it's kind of a pain to bubble up the errors at the
+// moment.
 async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
     let WsChannels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
@@ -98,17 +100,16 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
                 Ok(m) => m,
                 Err(err) => {
                     let out = format!("Connection Closed: {}", err);
-                    println!("");
-                    println!("{}", Red.paint(out));
+                    println!("\n{}", Red.paint(out));
                     process::exit(1);
                 },
             };
 
-            //write to stdout depending on opcode
+            // If prepare a message for display in stdout.
             let out = match message {
                 Message::Ping(payload) => {
                     tx_to_ws_write.send(Message::Pong(payload)).await;
-                    format!("{}", Green.paint("Ping!\n")) //add color
+                    format!("{}", Green.paint("Ping!\n"))
                 },
                 Message::Text(payload) => { payload },
                 Message::Binary(payload) => {
@@ -116,9 +117,8 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
                     String::from_utf8(payload).unwrap()
                 },
                 Message::Close(_) => {
-                    println!("");
                     let out = format!("{}", Red.paint("Connection Closed: Close message received"));
-                    println!("{}", out);
+                    println!("\n{}", out);
                     process::exit(0);
                 },
                 _ => format!("Unsupported ws message"),
@@ -130,7 +130,6 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
         }
     });
 
-    // TODO remove this unwrap
     let write_task = Task::local(async {
         rx_ws_write.map(Ok).forward(writer).await
     });
