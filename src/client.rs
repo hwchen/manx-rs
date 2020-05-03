@@ -1,7 +1,7 @@
 use ansi_term::Colour::{Green, Red};
-use anyhow::{Context as _, Result};
+use anyhow::{bail, Context as _, Result};
 use async_tungstenite::tungstenite::Message;
-use futures::{future, pin_mut};
+use futures::future;
 use futures::stream::StreamExt;
 use linefeed::{ReadResult, Signal};
 use smol::{Async, Task};
@@ -18,7 +18,7 @@ use url::Url;
 // - websocket async (read and write tasks spawned)
 //
 // Use channels to communicate across threads.
-// - Crossbeam channel when receiver is in sync stdout
+// - blocking channel when receiver is in sync stdout?
 // - piper when receiver is in websocket async
 //
 // First just support ws, not wss
@@ -37,7 +37,8 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     let ws_handle = thread::spawn(|| {
         smol::run(async {
             if let Err(err) = do_ws(url, chans).await {
-                eprintln!("{}", err);
+                let out = format!("{:#}", err);
+                eprintln!("\n{}", Red.paint(out));
                 process::exit(0);
             }
         })
@@ -66,7 +67,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
         match readline.read_line()? {
             ReadResult::Input(input) => {
                 readline.add_history(input.clone());
-                // block on this
+                // must block on this channel
                 smol::block_on(tx_to_ws_write.send(Message::text(input)));
             },
             ReadResult::Signal(sig) => {
@@ -85,14 +86,12 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
 }
 
 // Only use thread-local executor, since smol will only run on one thread.
-// Has branches that terminate process; it's kind of a pain to bubble up the errors at the
-// moment.
 async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
     let WsChannels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
 
-    let host = url.host_str().context("can't parse host")?;
-    let port = url.port_or_known_default().context("can't guess port")?;
+    let host = url.host_str().context("Can't parse host")?;
+    let port = url.port_or_known_default().context("Can't guess port")?;
     let addr = format!("{}:{}", host, port);
 
     let stream = Async::<TcpStream>::connect(&addr).await?;
@@ -103,14 +102,7 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
     // read task reads from ws, then sends signal to stdout loop
     let read_task = Task::local(async move {
         while let Some(message) = reader.next().await {
-            let message: Message = match message {
-                Ok(m) => m,
-                Err(err) => {
-                    let out = format!("Connection Closed: {}", err);
-                    println!("\n{}", Red.paint(out));
-                    process::exit(1);
-                },
-            };
+            let message = message.context("Connection closed")?;
 
             // If prepare a message for display in stdout.
             let out = match message {
@@ -120,29 +112,29 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
                 },
                 Message::Text(payload) => { payload },
                 Message::Binary(payload) => {
-                    // Binary just supported as text here; no downloading, etc.
-                    String::from_utf8(payload).unwrap()
+                    // Binary just supported as Utf8 text here; no downloading, etc.
+                    // TODO figure out a better way to support?
+                    String::from_utf8(payload)?
                 },
                 Message::Close(_) => {
-                    let out = format!("{}", Red.paint("Connection Closed: Close message received"));
-                    println!("\n{}", out);
-                    process::exit(0);
+                    bail!("Close message received"); // not really an error
                 },
                 _ => format!("Unsupported ws message"),
             };
 
             // blocking
-            // TODO try crossbeam channel?
             tx_to_stdout.send(Message::text(out)).unwrap();
         }
+
+        Ok(())
     });
 
     let write_task = Task::local(async {
-        rx_ws_write.map(Ok).forward(writer).await
+        rx_ws_write.map(Ok).forward(writer).await?;
+        Ok(())
     });
 
-    pin_mut!(read_task, write_task);
-    future::select(read_task, write_task).await;
+    future::try_join(read_task, write_task).await?;
 
     Ok(())
 }
