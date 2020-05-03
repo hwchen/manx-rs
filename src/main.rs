@@ -1,10 +1,8 @@
 mod cli;
 mod client;
 
-use std::process;
-
 use anyhow::{Context as _, Result};
-use ansi_term::Colour::{Blue, Red};
+use ansi_term::Colour::Blue;
 use url::Url;
 
 fn main() -> Result<()> {

@@ -1,4 +1,4 @@
-use ansi_term::Colour::{Green, Red, White};
+use ansi_term::Colour::{Green, Red};
 use anyhow::{Context as _, Result};
 use async_tungstenite::tungstenite::Message;
 use futures::{future, pin_mut};
