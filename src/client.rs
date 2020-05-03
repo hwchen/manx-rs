@@ -3,13 +3,12 @@ use anyhow::{Context as _, Result};
 use async_tungstenite::tungstenite::Message;
 use futures::{future, pin_mut};
 use futures::stream::StreamExt;
-use rl_sys::readline::{self, redisplay};
-use rl_sys::history::{listmgmt, mgmt};
+use linefeed::{ReadResult, Signal};
 use smol::{Async, Task};
-use std::io::{self, Write};
 use std::net::TcpStream;
 use std::process;
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::thread;
 use url::Url;
 
@@ -37,45 +36,40 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     // run read/write tasks for websocket
     let ws_handle = thread::spawn(|| smol::run(ws_client(url, chans)));
 
+    // readline interface, which will hold read/write locks
+    let readline = linefeed::Interface::new("manx")?;
+    readline.set_prompt("> ")?;
+    readline.set_report_signal(Signal::Interrupt, true);
+    let readline = Arc::new(readline);
+
     //stdout loop
-    let stdout_handle = thread::spawn(|| {
+    let stdout_readline = readline.clone();
+    let stdout_handle = thread::spawn(move || {
         for message in rx_stdout {
             if !(message.is_text() || message.is_binary()) {
                 continue;
             }
-
-            redisplay::save_prompt();
-
-            //clear line, maybe there's easier way in readline
-            // the 2K is to clear line completely
-            // the 2D is to move cursor back two spaces (from where it is
-            // after clearing the line, goes to original cursor position)
-            // Hmm... something weird happened. Now I'm using 1G to move to
-            // beginning of line. Not sure what changed from last version.
-            let esc = String::from_utf8(vec![27]).unwrap();
-            let clear_line_bytes = format!("{}[2K{}[1G", esc, esc).into_bytes();
-            io::stdout().write(&clear_line_bytes).expect("error clearing line");
-
-            io::stdout().write(&message.into_text().unwrap().as_bytes()).unwrap();
-            io::stdout().flush().unwrap();
-            redisplay::on_new_line().unwrap();
-            redisplay::rl_restore_prompt();
-            redisplay::redisplay();
+            let mut w = stdout_readline.lock_writer_erase().unwrap();
+            write!(w, "{}", message.into_text().unwrap()).unwrap();
         }
     });
 
     // stdin loop
     loop {
-        let input = match readline::readline("> ") {
-            Ok(Some(i)) => i,
-            Ok(None) => continue,
+        match readline.read_line()? {
+            ReadResult::Input(input) => {
+                readline.add_history(input.clone());
+                // block on this
+                smol::block_on(tx_to_ws_write.send(Message::text(input)));
+            },
+            ReadResult::Signal(sig) => {
+                // If I don't exit process here, readline loop exits on first Interrupt, and then
+                // the rest of the program exists on the second Interrupt
+                if sig == Signal::Interrupt { process::exit(0) };
+            },
             _ => break,
-        };
-        listmgmt::add(&input).unwrap();
-        // block on this
-        smol::block_on(tx_to_ws_write.send(Message::text(input)));
+        }
     }
-    mgmt::cleanup();
 
     ws_handle.join().unwrap().unwrap();
     stdout_handle.join().unwrap();
