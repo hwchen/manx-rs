@@ -34,7 +34,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     };
 
     // run read/write tasks for websocket
-    let ws_handle = thread::spawn(|| smol::run(ws_client(url, chans)));
+    let ws_handle = thread::spawn(|| smol::run(do_ws(url, chans)));
 
     // readline interface, which will hold read/write locks
     let readline = linefeed::Interface::new("manx")?;
@@ -78,7 +78,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
 }
 
 // only use thread-local executor, since smol will only run on one thread
-async fn ws_client(url: Url, chans: WsChannels) -> Result<()> {
+async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
     let WsChannels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
 
