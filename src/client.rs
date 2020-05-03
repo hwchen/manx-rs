@@ -7,7 +7,6 @@ use linefeed::{ReadResult, Signal};
 use smol::{Async, Task};
 use std::net::TcpStream;
 use std::process;
-use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 use url::Url;
@@ -24,7 +23,7 @@ use url::Url;
 // First just support ws, not wss
 pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     // set up channels for communicating
-    let (tx_to_stdout, rx_stdout) = channel::<Message>(); // async -> sync
+    let (tx_to_stdout, mut rx_stdout) = piper::chan::<Message>(10); // async -> sync
     let (tx_to_ws_write, rx_ws_write) = piper::chan::<Message>(10); // sync -> async, async -> async
 
     let chans = WsChannels {
@@ -53,12 +52,14 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     //stdout loop
     let stdout_readline = readline.clone();
     let stdout_handle = thread::spawn(move || {
-        for message in rx_stdout {
-            if !(message.is_text() || message.is_binary()) {
-                continue;
+        loop {
+            if let Some(message) = smol::block_on(rx_stdout.next()) {
+                if !(message.is_text() || message.is_binary()) {
+                    continue;
+                }
+                let mut w = stdout_readline.lock_writer_erase().unwrap();
+                writeln!(w, "<< {}", message.into_text().unwrap()).unwrap();
             }
-            let mut w = stdout_readline.lock_writer_erase().unwrap();
-            writeln!(w, "<< {}", message.into_text().unwrap()).unwrap();
         }
     });
 
@@ -123,7 +124,7 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
             };
 
             // blocking
-            tx_to_stdout.send(Message::text(out)).unwrap();
+            tx_to_stdout.send(Message::text(out)).await;
         }
 
         Ok(())
@@ -141,7 +142,7 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
 
 struct WsChannels {
     tx_to_ws_write: piper::Sender<Message>,
-    tx_to_stdout: std::sync::mpsc::Sender<Message>,
+    tx_to_stdout: piper::Sender<Message>,
     rx_ws_write: piper::Receiver<Message>,
 }
 
