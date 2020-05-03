@@ -1,6 +1,7 @@
 use ansi_term::Colour::{Green, Red, White};
 use anyhow::Result;
 use async_tungstenite::tungstenite::Message;
+use futures::{future, pin_mut};
 use futures::stream::StreamExt;
 use rl_sys::readline::{self, redisplay};
 use rl_sys::history::{listmgmt, mgmt};
@@ -34,10 +35,10 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     };
 
     // run read/write tasks for websocket
-    thread::spawn(|| smol::run(ws_client(url, chans)));
+    let ws_handle = thread::spawn(|| smol::run(ws_client(url, chans)));
 
     //stdout loop
-    thread::spawn(|| {
+    let stdout_handle = thread::spawn(|| {
         for message in rx_stdout {
             if !(message.is_text() || message.is_binary()) {
                 continue;
@@ -73,10 +74,11 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
         listmgmt::add(&input).unwrap();
         // block on this
         let _ = smol::block_on(async {tx_to_ws_write.send(Message::text(input)).await});
-
-        println!("message sent for writing to websocket");
     }
     mgmt::cleanup();
+
+    ws_handle.join().unwrap().unwrap();
+    stdout_handle.join().unwrap();
 
     Ok(())
 }
@@ -86,7 +88,7 @@ async fn ws_client(addr: Url, chans: WsChannels) -> Result<()> {
     let WsChannels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
 
-    let stream = Async::<TcpStream>::connect(&addr).await?;
+    let stream = Async::<TcpStream>::connect("127.0.0.1:9999").await?;
     let (stream, _resp) = async_tungstenite::client_async(&addr, stream).await?;
 
     let (writer, mut reader) = stream.split();
@@ -133,11 +135,14 @@ async fn ws_client(addr: Url, chans: WsChannels) -> Result<()> {
             tx_to_stdout.send(Message::text(out)).unwrap();
         }
     });
-    read_task.detach();
 
-    // TODOD remove this unwrap
-    let write_task = Task::local(rx_ws_write.map(Ok).forward(writer));
-    write_task.unwrap().detach();
+    // TODO remove this unwrap
+    let write_task = Task::local(async {
+        rx_ws_write.map(Ok).forward(writer).await
+    });
+
+    pin_mut!(read_task, write_task);
+    future::select(read_task, write_task).await;
 
     Ok(())
 }
