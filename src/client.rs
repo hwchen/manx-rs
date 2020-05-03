@@ -1,5 +1,5 @@
 use ansi_term::Colour::{Green, Red, White};
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use async_tungstenite::tungstenite::Message;
 use futures::{future, pin_mut};
 use futures::stream::StreamExt;
@@ -73,7 +73,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
         };
         listmgmt::add(&input).unwrap();
         // block on this
-        let _ = smol::block_on(async {tx_to_ws_write.send(Message::text(input)).await});
+        smol::block_on(tx_to_ws_write.send(Message::text(input)));
     }
     mgmt::cleanup();
 
@@ -84,12 +84,16 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
 }
 
 // only use thread-local executor, since smol will only run on one thread
-async fn ws_client(addr: Url, chans: WsChannels) -> Result<()> {
+async fn ws_client(url: Url, chans: WsChannels) -> Result<()> {
     let WsChannels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
 
-    let stream = Async::<TcpStream>::connect("127.0.0.1:9999").await?;
-    let (stream, _resp) = async_tungstenite::client_async(&addr, stream).await?;
+    let host = url.host_str().context("can't parse host")?;
+    let port = url.port_or_known_default().context("can't guess port")?;
+    let addr = format!("{}:{}", host, port);
+
+    let stream = Async::<TcpStream>::connect(&addr).await?;
+    let (stream, _resp) = async_tungstenite::client_async(&url, stream).await?;
 
     let (writer, mut reader) = stream.split();
 
