@@ -50,7 +50,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
                 continue;
             }
             let mut w = stdout_readline.lock_writer_erase().unwrap();
-            write!(w, "{}", message.into_text().unwrap()).unwrap();
+            writeln!(w, "<< {}", message.into_text().unwrap()).unwrap();
         }
     });
 
@@ -110,14 +110,10 @@ async fn ws_client(url: Url, chans: WsChannels) -> Result<()> {
                     tx_to_ws_write.send(Message::Pong(payload)).await;
                     format!("{}", Green.paint("Ping!\n")) //add color
                 },
-                Message::Text(payload) => {
-                    let out = format!("<< {}\n", payload);
-                    format!("{}", White.dimmed().paint(out))
-                },
+                Message::Text(payload) => { payload },
                 Message::Binary(payload) => {
                     // Binary just supported as text here; no downloading, etc.
-                    let out = format!("<< {}\n", String::from_utf8(payload).unwrap());
-                    format!("{}", White.dimmed().paint(out))
+                    String::from_utf8(payload).unwrap()
                 },
                 Message::Close(_) => {
                     println!("");
