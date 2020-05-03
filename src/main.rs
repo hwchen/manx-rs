@@ -21,7 +21,7 @@ fn main() -> Result<()> {
         let auth_option = None;
 
         // print that client is connecting
-        let out_url = format!("Connected to {:?} (Ctrl-C to exit)", url_option);
+        let out_url = format!("Connecting to {:?} (Ctrl-C to exit)", url_option);
         println!("{}", Blue.bold().paint(out_url));
         client::wscat_client(url, auth_option)?;
     }

@@ -34,7 +34,14 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     };
 
     // run read/write tasks for websocket
-    let ws_handle = thread::spawn(|| smol::run(do_ws(url, chans)));
+    let ws_handle = thread::spawn(|| {
+        smol::run(async {
+            if let Err(err) = do_ws(url, chans).await {
+                eprintln!("{}", err);
+                process::exit(0);
+            }
+        })
+    });
 
     // readline interface, which will hold read/write locks
     let readline = linefeed::Interface::new("manx")?;
@@ -71,7 +78,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
         }
     }
 
-    ws_handle.join().unwrap().unwrap();
+    ws_handle.join().unwrap();
     stdout_handle.join().unwrap();
 
     Ok(())
