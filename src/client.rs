@@ -72,7 +72,10 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
             ReadResult::Signal(sig) => {
                 // If I don't exit process here, readline loop exits on first Interrupt, and then
                 // the rest of the program exists on the second Interrupt
-                if sig == Signal::Interrupt { process::exit(0) };
+                if sig == Signal::Interrupt {
+                    readline.cancel_read_line()?;
+                    process::exit(0)
+                };
             },
             _ => break,
         }
