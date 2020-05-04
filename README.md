@@ -2,8 +2,7 @@
 
 manx is a wscat clone. It's a simple interface to websocket servers.
 
-One of its features is that it saves the prompt, so that you can type commands even
-if you are receiving a flood of data.
+One of its features is that it saves the prompt, so that you can easily see the commands you're typing even if you are receiving a flood of data.
 
 For those learning Rust and async, manx shows how async websockets can interface with sync stdin and stdout loops.
 
@@ -16,11 +15,16 @@ Thanks especially to [smol](https://github.com/stjepang/smol), [async-tungstenit
 Make sure you have [Rust](https://rustup.rs), then
 
 ```
-$ cargo install manx
+cargo install manx
 ```
 
 ## Usage
+To connect to a ws server:
+```
+manx ws://echo.websocket.org
+```
 
+Options:
 ```
 manx 0.4.0
 Walther Chen <walther.chen@gmail.com>
