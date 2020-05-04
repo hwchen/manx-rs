@@ -1,12 +1,15 @@
 # Manx
 
-manx is a wscat clone. It's a simple interface to websockets. Intended to be used as
-a client, but also contains a listener.
+manx is a wscat clone. It's a simple interface to websocket servers.
 
 One of its features is that it saves the prompt, so that you can type commands even
 if you are receiving a flood of data.
 
-Windows is not currently supported, but will be soon.
+For those learning Rust and async, manx shows how async websockets can interface with sync stdin and stdout loops.
+
+Windows should be supported (although currently untested, please sent in bug reports!)
+
+Thanks especially to [smol](https://github.com/stjepang/smol), [async-tungstenite](https://github.com/sdroege/async-tungstenite), [tungstenite](https://github.com/snapview/tungstenite-rs), and [linefeed](https://github.com/murarth/linefeed), which provided the building blocks for this app.
 
 # Install
 
@@ -19,35 +22,24 @@ $ cargo install manx
 ## Usage
 
 ```
-manx 0.3.0
+manx 0.4.0
 Walther Chen <walther.chen@gmail.com>
 Talk to websockets from cli
 
 USAGE:
-    manx [FLAGS] [SUBCOMMAND]
+    manx [FLAGS] [OPTIONS] <URL>
 
 FLAGS:
-    -h, --help       Prints help information
-    -V, --version    Prints version information
+    -h, --help              Prints help information
+        --show-ping-pong    Print when ping or pong received.
+    -V, --version           Prints version information
 
-SUBCOMMANDS:
-    connect    Connect to server url [aliases: c]
-    help       Prints this message or the help of the given subcommand(s)
-    listen     Listen on port
+OPTIONS:
+        --cert <cert_path>    Specify a client SSL Certificate
+
+ARGS:
+    <URL>
 ```
-
-## Version 1.0 plans
-
-I'm considering rewriting to bring it to 1.0. Changes include:
-
-- new architecture, based on ripgrep cli app.
-- with new architecture, handle errors with error-chain.
-- rustyline instead of readline.
-- ? better colors handling.
-- ? async websockets.
-
-But, I might just keep it as-is, it seems to work even if the code
-is not the prettiest.
 
 ## License
 
