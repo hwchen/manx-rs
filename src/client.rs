@@ -26,7 +26,7 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
     let (tx_to_stdout, mut rx_stdout) = piper::chan::<String>(10); // async -> sync
     let (tx_to_ws_write, rx_ws_write) = piper::chan::<Message>(10); // sync -> async, async -> async
 
-    let chans = WsChannels {
+    let chans = Channels {
         tx_to_ws_write: tx_to_ws_write.clone(),
         tx_to_stdout,
         rx_ws_write,
@@ -84,8 +84,8 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
 }
 
 // Only use thread-local executor, since smol will only run on one thread.
-async fn do_ws(url: Url, chans: WsChannels, opts: Opts) -> Result<()> {
-    let WsChannels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
+async fn do_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
+    let Channels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
 
     let host = url.host_str().context("Can't parse host")?;
@@ -147,7 +147,7 @@ async fn do_ws(url: Url, chans: WsChannels, opts: Opts) -> Result<()> {
     Ok(())
 }
 
-struct WsChannels {
+struct Channels {
     tx_to_ws_write: piper::Sender<Message>,
     tx_to_stdout: piper::Sender<String>,
     rx_ws_write: piper::Receiver<Message>,
