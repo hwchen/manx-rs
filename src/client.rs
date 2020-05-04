@@ -21,7 +21,7 @@ use url::Url;
 // - piper when receiver is in websocket async
 //
 // First just support ws, not wss
-pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
+pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
     // set up channels for communicating
     let (tx_to_stdout, mut rx_stdout) = piper::chan::<String>(10); // async -> sync
     let (tx_to_ws_write, rx_ws_write) = piper::chan::<Message>(10); // sync -> async, async -> async
@@ -35,7 +35,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
     // run read/write tasks for websocket
     let ws_handle = thread::spawn(|| {
         smol::run(async {
-            if let Err(err) = do_ws(url, chans).await {
+            if let Err(err) = do_ws(url, chans, opts).await {
                 let out = format!("{:#}", err);
                 eprintln!("\n{}", Red.paint(out));
                 process::exit(0);
@@ -84,7 +84,7 @@ pub fn wscat_client(url: Url, _auth_option: Option<String>) -> Result<()> {
 }
 
 // Only use thread-local executor, since smol will only run on one thread.
-async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
+async fn do_ws(url: Url, chans: WsChannels, opts: Opts) -> Result<()> {
     let WsChannels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
 
@@ -106,7 +106,18 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
             let out = match message {
                 Message::Ping(payload) => {
                     tx_to_ws_write.send(Message::Pong(payload)).await;
-                    format!("{}", Green.paint("Ping!\n"))
+                    if opts.show_ping_pong {
+                        format!("{}", Green.paint("-- received ping"))
+                    } else {
+                        continue;
+                    }
+                },
+                Message::Pong(_) => {
+                    if opts.show_ping_pong {
+                        format!("{}", Green.paint("-- received pong"))
+                    } else {
+                        continue
+                    }
                 },
                 Message::Text(payload) => { payload },
                 Message::Binary(payload) => {
@@ -117,7 +128,6 @@ async fn do_ws(url: Url, chans: WsChannels) -> Result<()> {
                 Message::Close(_) => {
                     bail!("Close message received"); // not really an error
                 },
-                _ => format!("Unsupported ws message"),
             };
 
             // blocking
@@ -141,6 +151,11 @@ struct WsChannels {
     tx_to_ws_write: piper::Sender<Message>,
     tx_to_stdout: piper::Sender<String>,
     rx_ws_write: piper::Receiver<Message>,
+}
+
+pub struct Opts {
+    pub auth: Option<String>,
+    pub show_ping_pong: bool,
 }
 
 
