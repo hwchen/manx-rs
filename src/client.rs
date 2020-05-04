@@ -18,10 +18,9 @@ use crate::ws;
 // - websocket async (read and write tasks spawned)
 //
 // Use channels to communicate across threads.
-// - blocking channel when receiver is in sync stdout?
+// - block_on for piper channel when receiver is in sync stdout
 // - piper when receiver is in websocket async
 //
-// First just support ws, not wss
 pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
     // set up channels for communicating
     let (tx_to_stdout, mut rx_stdout) = piper::chan::<String>(10); // async -> sync
