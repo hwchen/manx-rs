@@ -19,5 +19,9 @@ pub fn get_cli<'a>() -> ArgMatches<'a> {
             .long("show-ping-pong")
             .help("Print when ping or pong received.")
             .takes_value(false))
+        .arg(Arg::with_name("cert_path")
+            .long("cert")
+            .help("Specify a client SSL Certificate")
+            .takes_value(true))
         .get_matches()
 }

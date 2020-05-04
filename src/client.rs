@@ -4,12 +4,13 @@ use async_tungstenite::tungstenite::Message;
 use futures::future;
 use futures::stream::StreamExt;
 use linefeed::{ReadResult, Signal};
-use smol::{Async, Task};
-use std::net::TcpStream;
+use smol::Task;
 use std::process;
 use std::sync::Arc;
 use std::thread;
 use url::Url;
+
+use crate::ws;
 
 // Three threads:
 // - stdin loop
@@ -35,7 +36,7 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
     // run read/write tasks for websocket
     let ws_handle = thread::spawn(|| {
         smol::run(async {
-            if let Err(err) = do_ws(url, chans, opts).await {
+            if let Err(err) = watch_ws(url, chans, opts).await {
                 let out = format!("{:#}", err);
                 eprintln!("\n{}", Red.paint(out));
                 process::exit(0);
@@ -84,17 +85,13 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
 }
 
 // Only use thread-local executor, since smol will only run on one thread.
-async fn do_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
+async fn watch_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
+    let show_ping_pong = opts.show_ping_pong;
+
     let Channels {tx_to_ws_write, tx_to_stdout, rx_ws_write } = chans;
     let tx_to_ws_write = tx_to_ws_write.clone();
 
-    let host = url.host_str().context("Can't parse host")?;
-    let port = url.port_or_known_default().context("Can't guess port")?;
-    let addr = format!("{}:{}", host, port);
-
-    let stream = Async::<TcpStream>::connect(&addr).await?;
-    let (stream, _resp) = async_tungstenite::client_async(&url, stream).await?;
-
+    let stream = ws::init(url, opts.cert).await?;
     let (writer, mut reader) = stream.split();
 
     // read task reads from ws, then sends signal to stdout loop
@@ -106,14 +103,14 @@ async fn do_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
             let out = match message {
                 Message::Ping(payload) => {
                     tx_to_ws_write.send(Message::Pong(payload)).await;
-                    if opts.show_ping_pong {
+                    if show_ping_pong {
                         format!("{}", Green.paint("-- received ping"))
                     } else {
                         continue;
                     }
                 },
                 Message::Pong(_) => {
-                    if opts.show_ping_pong {
+                    if show_ping_pong {
                         format!("{}", Green.paint("-- received pong"))
                     } else {
                         continue
@@ -156,6 +153,7 @@ struct Channels {
 pub struct Opts {
     pub auth: Option<String>,
     pub show_ping_pong: bool,
+    pub cert: Option<Vec<u8>>,
 }
 
 
