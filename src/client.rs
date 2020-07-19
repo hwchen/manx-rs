@@ -1,15 +1,16 @@
 use ansi_term::Colour::{Green, Red};
 use anyhow::{bail, Context as _, Result};
 use async_tungstenite::tungstenite::Message;
+use blocking::block_on;
 use futures::future;
 use futures::stream::StreamExt;
 use linefeed::{ReadResult, Signal};
-use smol::Task;
 use std::process;
 use std::sync::Arc;
 use std::thread;
 use url::Url;
 
+use crate::executor::Task;
 use crate::ws;
 
 // Three threads:
@@ -34,7 +35,7 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
 
     // run read/write tasks for websocket
     let ws_handle = thread::spawn(|| {
-        smol::run(async {
+        block_on(async {
             if let Err(err) = watch_ws(url, chans, opts).await {
                 let out = format!("{:#}", err);
                 eprintln!("\n{}", Red.paint(out));
@@ -53,7 +54,7 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
     let stdout_readline = readline.clone();
     let stdout_handle = thread::spawn(move || {
         loop {
-            if let Some(message) = smol::block_on(rx_stdout.next()) {
+            if let Some(message) = block_on(rx_stdout.next()) {
                 let mut w = stdout_readline.lock_writer_erase().unwrap();
                 writeln!(w, "<< {}", message).unwrap();
             }
@@ -66,7 +67,7 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
             ReadResult::Input(input) => {
                 readline.add_history(input.clone());
                 // must block on this channel
-                smol::block_on(tx_to_ws_write.send(Message::text(input)));
+                block_on(tx_to_ws_write.send(Message::text(input)));
             },
             ReadResult::Signal(sig) => {
                 // If I don't exit process here, readline loop exits on first Interrupt, and then
@@ -86,7 +87,6 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
     Ok(())
 }
 
-// Only use thread-local executor, since smol will only run on one thread.
 async fn watch_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
     let show_ping_pong = opts.show_ping_pong;
 
@@ -97,7 +97,7 @@ async fn watch_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
     let (writer, mut reader) = stream.split();
 
     // read task reads from ws, then sends signal to stdout loop
-    let read_task = Task::local(async move {
+    let read_task = Task::spawn(async move {
         while let Some(message) = reader.next().await {
             let message = message.context("Connection closed")?;
 
@@ -136,7 +136,7 @@ async fn watch_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
         Ok(())
     });
 
-    let write_task = Task::local(async {
+    let write_task = Task::spawn(async {
         rx_ws_write.map(Ok).forward(writer).await?;
         Ok(())
     });

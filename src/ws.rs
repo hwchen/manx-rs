@@ -3,9 +3,10 @@
 use anyhow::{bail, Context as _, Result};
 use async_native_tls::{Certificate, TlsConnector, TlsStream};
 use async_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
+use blocking::unblock;
 use futures::prelude::*;
-use smol::Async;
-use std::net::TcpStream;
+use async_io::Async;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use url::Url;
@@ -59,13 +60,21 @@ impl Stream for WsStream {
 }
 
 pub async fn init(url: Url, cert: Option<Vec<u8>>) -> Result<WsStream> {
-    let host = url.host_str().context("Can't parse host")?;
+    let host = url.host_str().context("Can't parse host")?.to_owned();
     let port = url.port_or_known_default().context("Can't guess port")?;
-    let addr = format!("{}:{}", host, port);
+
+    let socket_addr = {
+        let host = host.clone();
+        unblock!(
+            (host.as_str(), port).to_socket_addrs()
+        )?
+        .next()
+        .context("cannot resolve address")?
+    };
 
     let res = match url.scheme() {
         "ws" => {
-            let stream = Async::<TcpStream>::connect(&addr).await?;
+            let stream = Async::<TcpStream>::connect(socket_addr).await?;
             let (stream, _resp) = async_tungstenite::client_async(&url, stream).await?;
             WsStream::Plain(stream)
         },
@@ -77,7 +86,7 @@ pub async fn init(url: Url, cert: Option<Vec<u8>>) -> Result<WsStream> {
             let tls = TlsConnector::from(tls_builder);
 
             //
-            let stream = Async::<TcpStream>::connect(&addr).await?;
+            let stream = Async::<TcpStream>::connect(socket_addr).await?;
             let stream = tls.connect(host, stream).await?;
             let (stream, _resp) = async_tungstenite::client_async(&url, stream).await?;
             WsStream::Tls(stream)
