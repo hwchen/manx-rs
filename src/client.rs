@@ -1,5 +1,6 @@
 use ansi_term::Colour::{Green, Red};
 use anyhow::{bail, Context as _, Result};
+use async_channel::{bounded as chan, Receiver, Sender};
 use async_tungstenite::tungstenite::Message;
 use blocking::block_on;
 use futures::future;
@@ -19,13 +20,13 @@ use crate::ws;
 // - websocket async (read and write tasks spawned)
 //
 // Use channels to communicate across threads.
-// - block_on for piper channel when receiver is in sync stdout
+// - block_on for async hannel when receiver is in sync stdout
 // - piper when receiver is in websocket async
 //
 pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
     // set up channels for communicating
-    let (tx_to_stdout, mut rx_stdout) = piper::chan::<String>(10); // async -> sync
-    let (tx_to_ws_write, rx_ws_write) = piper::chan::<Message>(10); // sync -> async, async -> async
+    let (tx_to_stdout, mut rx_stdout) = chan::<String>(10); // async -> sync
+    let (tx_to_ws_write, rx_ws_write) = chan::<Message>(10); // sync -> async, async -> async
 
     let chans = Channels {
         tx_to_ws_write: tx_to_ws_write.clone(),
@@ -67,7 +68,7 @@ pub fn wscat_client(url: Url, opts: Opts) -> Result<()> {
             ReadResult::Input(input) => {
                 readline.add_history(input.clone());
                 // must block on this channel
-                block_on(tx_to_ws_write.send(Message::text(input)));
+                block_on(tx_to_ws_write.send(Message::text(input)))?;
             },
             ReadResult::Signal(sig) => {
                 // If I don't exit process here, readline loop exits on first Interrupt, and then
@@ -104,7 +105,7 @@ async fn watch_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
             // If prepare a message for display in stdout.
             let out = match message {
                 Message::Ping(payload) => {
-                    tx_to_ws_write.send(Message::Pong(payload)).await;
+                    tx_to_ws_write.send(Message::Pong(payload)).await?;
                     if show_ping_pong {
                         format!("{}", Green.paint("-- received ping"))
                     } else {
@@ -130,7 +131,7 @@ async fn watch_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
             };
 
             // blocking
-            tx_to_stdout.send(out).await;
+            tx_to_stdout.send(out).await?;
         }
 
         Ok(())
@@ -147,9 +148,9 @@ async fn watch_ws(url: Url, chans: Channels, opts: Opts) -> Result<()> {
 }
 
 struct Channels {
-    tx_to_ws_write: piper::Sender<Message>,
-    tx_to_stdout: piper::Sender<String>,
-    rx_ws_write: piper::Receiver<Message>,
+    tx_to_ws_write: Sender<Message>,
+    tx_to_stdout: Sender<String>,
+    rx_ws_write: Receiver<Message>,
 }
 
 pub struct Opts {
