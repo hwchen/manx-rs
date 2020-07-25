@@ -1,6 +1,5 @@
 mod cli;
 mod client;
-mod executor;
 mod ws;
 
 use anyhow::{Context as _, Result};

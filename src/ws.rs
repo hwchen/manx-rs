@@ -4,7 +4,9 @@ use anyhow::{bail, Context as _, Result};
 use async_native_tls::{Certificate, TlsConnector, TlsStream};
 use async_tungstenite::{tungstenite::{self, Message}, WebSocketStream};
 use blocking::unblock;
-use futures::prelude::*;
+// TODO add this to futures_lite?
+use futures_sink::Sink;
+use futures_lite::stream::Stream;
 use async_io::Async;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::pin::Pin;
