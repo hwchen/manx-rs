@@ -82,10 +82,13 @@ pub async fn init(url: Url, cert: Option<Vec<u8>>) -> Result<WsStream> {
         },
         "wss" => {
             // init tls
-            let cert = cert.context("No certificate found for tls")?;
-            let mut tls_builder = native_tls::TlsConnector::builder();
-            tls_builder.add_root_certificate(Certificate::from_pem(&cert)?);
-            let tls = TlsConnector::from(tls_builder);
+            let tls = if let Some(cert) = cert {
+                let mut tls_builder = native_tls::TlsConnector::builder();
+                tls_builder.add_root_certificate(Certificate::from_pem(&cert)?);
+                TlsConnector::from(tls_builder)
+            } else {
+                TlsConnector::new()
+            };
 
             //
             let stream = Async::<TcpStream>::connect(socket_addr).await?;
