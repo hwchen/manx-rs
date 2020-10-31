@@ -67,9 +67,10 @@ pub async fn init(url: Url, cert: Option<Vec<u8>>) -> Result<WsStream> {
 
     let socket_addr = {
         let host = host.clone();
-        unblock!(
+        unblock(move ||
             (host.as_str(), port).to_socket_addrs()
-        )?
+        )
+        .await?
         .next()
         .context("cannot resolve address")?
     };
